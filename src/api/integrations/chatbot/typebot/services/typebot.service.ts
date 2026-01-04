@@ -369,8 +369,32 @@ export class TypebotService extends BaseChatbotService<TypebotModel, any> {
       }
 
       if (message.type === 'file' || message.type === 'embed') {
-        const mediaUrl = message.content.url;
+        const content = message.content as { url?: string; name?: string } | undefined;
+        if (!content?.url) {
+          sendTelemetry('/message/sendMediaMissingUrl');
+          return;
+        }
+
+        const mediaUrl = content.url;
         const mediaType = this.getMediaType(mediaUrl);
+
+        let fileName = content.name;
+        if (!fileName) {
+          try {
+            const urlObj = new URL(mediaUrl);
+            const path = urlObj.pathname || '';
+            const candidate = path.split('/').pop() || '';
+            if (candidate && candidate.includes('.')) {
+              fileName = candidate;
+            }
+          } catch {
+            // Ignore URL parsing failures
+          }
+
+          if (!fileName) {
+            fileName = mediaType && mediaType !== 'document' ? `media.${mediaType}` : 'attachment';
+          }
+        }
 
         if (mediaType === 'audio') {
           await instance.audioWhatsapp(
@@ -389,7 +413,7 @@ export class TypebotService extends BaseChatbotService<TypebotModel, any> {
               delay: settings?.delayMessage || 1000,
               mediatype: mediaType || 'document',
               media: mediaUrl,
-              fileName: message.content.name || 'document.pdf',
+              fileName,
             },
             null,
             false,

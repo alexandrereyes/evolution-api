@@ -2229,7 +2229,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
       if (!match) return undefined;
 
-      const url = match[0];
+      // Trim common trailing punctuation that may follow URLs in natural text
+      const url = match[0].replace(/[.,);\]]+$/u, '');
+      if (!url) return undefined;
+
       const previewData = await getLinkPreview(url, {
         imagesPropertyType: 'og', // fetches only open-graph images
         headers: {
