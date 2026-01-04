@@ -139,6 +139,7 @@ import { createHash } from 'crypto';
 import EventEmitter2 from 'eventemitter2';
 import ffmpeg from 'fluent-ffmpeg';
 import FormData from 'form-data';
+import { getLinkPreview } from 'link-preview-js';
 import Long from 'long';
 import mimeTypes from 'mime-types';
 import NodeCache from 'node-cache';
@@ -2221,6 +2222,43 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  private async generateLinkPreview(text: string) {
+    try {
+      const linkRegex = /https?:\/\/[^\s]+/;
+      const match = text.match(linkRegex);
+
+      if (!match) return undefined;
+
+      const url = match[0];
+      const previewData = await getLinkPreview(url, {
+        imagesPropertyType: 'og', // fetches only open-graph images
+        headers: {
+          'user-agent': 'googlebot', // fetches with googlebot to prevent login pages
+        },
+      }) as any;
+
+      if (!previewData || !previewData.title) return undefined;
+
+      const image = previewData.images && previewData.images.length > 0 ? previewData.images[0] : undefined;
+
+      return {
+        externalAdReply: {
+          title: previewData.title,
+          body: previewData.description,
+          mediaType: 2, // 2 for video/image preview, though usually 1 is for thumbnail
+          thumbnailUrl: image,
+          sourceUrl: url,
+          mediaUrl: url,
+          renderLargerThumbnail: true,
+          showAdAttribution: true
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Error generating link preview: ${error}`);
+      return undefined;
+    }
+  }
+
   private async sendMessage(
     sender: string,
     message: any,
@@ -2432,7 +2470,12 @@ export class BaileysStartupService extends ChannelStartupService {
         }
       }
 
-      const linkPreview = options?.linkPreview != false ? undefined : false;
+      const linkPreview = options?.linkPreview === false ? false : undefined;
+
+      let previewContext: any = undefined;
+      if (linkPreview !== false && (message as any)?.conversation) {
+        previewContext = await this.generateLinkPreview((message as any).conversation);
+      }
 
       let quoted: WAMessage;
 
@@ -2486,6 +2529,7 @@ export class BaileysStartupService extends ChannelStartupService {
           quoted,
           null,
           group?.ephemeralDuration,
+          previewContext,
           // group?.participants,
         );
       } else {
@@ -2499,6 +2543,7 @@ export class BaileysStartupService extends ChannelStartupService {
             unsigned: false,
           },
           disappearingMode: { initiator: 0 },
+          ...previewContext,
         };
         messageSent = await this.sendMessage(
           sender,
