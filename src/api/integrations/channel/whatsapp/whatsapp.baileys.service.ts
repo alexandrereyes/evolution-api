@@ -2244,12 +2244,23 @@ export class BaileysStartupService extends ChannelStartupService {
 
       const image = previewData.images && previewData.images.length > 0 ? previewData.images[0] : undefined;
 
+      let thumbnail: Buffer | undefined = undefined;
+      if (image) {
+        try {
+          const response = await axios.get(image, { responseType: 'arraybuffer' });
+          thumbnail = Buffer.from(response.data);
+        } catch {
+          // Ignore image fetch failures
+        }
+      }
+
       return {
         externalAdReply: {
           title: previewData.title,
           body: previewData.description,
-          mediaType: 2, // 2 for video/image preview, though usually 1 is for thumbnail
+          mediaType: 1, // 1 for image, 2 for video. Using 1 for better cover image support with renderLargerThumbnail
           thumbnailUrl: image,
+          thumbnail: thumbnail,
           sourceUrl: url,
           mediaUrl: url,
           renderLargerThumbnail: true
