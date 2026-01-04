@@ -2257,7 +2257,7 @@ export class BaileysStartupService extends ChannelStartupService {
         }
       };
     } catch (error) {
-      this.logger.error(`Error generating link preview: ${error}`);
+      this.logger.error('Error generating link preview', error);
       return undefined;
     }
   }
