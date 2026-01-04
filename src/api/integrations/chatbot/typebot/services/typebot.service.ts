@@ -368,6 +368,36 @@ export class TypebotService extends BaseChatbotService<TypebotModel, any> {
         sendTelemetry('/message/sendWhatsAppAudio');
       }
 
+      if (message.type === 'file' || message.type === 'embed') {
+        const mediaUrl = message.content.url;
+        const mediaType = this.getMediaType(mediaUrl);
+
+        if (mediaType === 'audio') {
+          await instance.audioWhatsapp(
+            {
+              number: session.remoteJid,
+              delay: settings?.delayMessage || 1000,
+              encoding: true,
+              audio: mediaUrl,
+            },
+            false,
+          );
+        } else {
+          await instance.mediaMessage(
+            {
+              number: session.remoteJid,
+              delay: settings?.delayMessage || 1000,
+              mediatype: mediaType || 'document',
+              media: mediaUrl,
+              fileName: message.content.name || 'document.pdf',
+            },
+            null,
+            false,
+          );
+        }
+        sendTelemetry('/message/sendMedia');
+      }
+
       const wait = findItemAndGetSecondsToWait(clientSideActions, message.id);
 
       if (wait) {
