@@ -621,17 +621,19 @@ export class BaileysStartupService extends ChannelStartupService {
   private async createClient(number?: string): Promise<WASocket> {
     this.instance.authState = await this.defineAuthState();
 
-    if (number || this.phoneNumber) {
+    if (number) {
       this.phoneNumber = number;
-
       this.logger.info(`Phone number: ${number}`);
     }
 
+<<<<<<< HEAD
     // Multi-Device mode: não definimos browser para evitar ser tratado como WebClient
     // Isso faz o Baileys usar o modo MD nativo, que não conflita com outras sessões
     this.logger.info('Using Multi-Device native mode (no browser identification)');
 
     // Fetch latest WhatsApp Web version automatically
+=======
+>>>>>>> 6b18bc21 (chore: remove unused deploy files and cleanup whatsapp service)
     const baileysVersion = await fetchLatestWaWebVersion({});
     const version = baileysVersion.version;
 
