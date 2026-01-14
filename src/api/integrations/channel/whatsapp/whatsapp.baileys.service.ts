@@ -1979,10 +1979,9 @@ export class BaileysStartupService extends ChannelStartupService {
       return error;
     }
   }
-
-  private async generateMessageID() {
+  public generateMessageID() {
     return {
-      id: generateMessageIDV2(this.client.user?.id),
+      id: generateMessageIDV2(this.client.user?.id)
     };
   }
 
