@@ -1774,8 +1774,7 @@ export class ChatwootService {
     liveLocationMessage: msg.liveLocationMessage,
     listMessage: msg.listMessage,
     listResponseMessage: msg.listResponseMessage,
-    // Adicione a linha abaixo. Atenção à vírgula na linha de cima!
-    orderMessage: msg.orderMessage, 
+    orderMessage: msg.orderMessage,
     viewOnceMessageV2:
       msg?.message?.viewOnceMessageV2?.message?.imageMessage?.url ||
       msg?.message?.viewOnceMessageV2?.message?.videoMessage?.url ||
@@ -1795,21 +1794,40 @@ export class ChatwootService {
       result = result.split('externalAdReplyBody|').filter(Boolean).join('');
     }
 
-    // Tratamento de Pedidos do Catálogo
+    // Tratamento de Pedidos do Catálogo (WhatsApp Business Catalog)
     if (typeKey === 'orderMessage') {
+      // Extrai o valor - pode ser Long, objeto {low, high}, ou número direto
+      let rawPrice = 0;
       const amount = result.totalAmount1000;
-      // Converte o objeto Long para número antes da divisão
-      const rawPrice = (Long.isLong(amount) ? amount.toNumber() : amount) || 0;
+
+      if (Long.isLong(amount)) {
+        rawPrice = amount.toNumber();
+      } else if (amount && typeof amount === 'object' && 'low' in amount) {
+        // Formato {low: number, high: number, unsigned: boolean}
+        rawPrice = Long.fromValue(amount).toNumber();
+      } else if (typeof amount === 'number') {
+        rawPrice = amount;
+      }
+
       const price = (rawPrice / 1000).toLocaleString('pt-BR', {
         style: 'currency',
         currency: result.totalCurrencyCode || 'BRL',
       });
 
-      return `🛒 *NOVO PEDIDO NO CATÁLOGO*\n\n` +
-             `*Produto:* ${result.orderTitle}\n` +
-             `*Valor:* ${price}\n` +
-             `*ID:* ${result.orderId}\n\n` +
-             `_Atenda agora para finalizar a venda!_`;
+      const itemCount = result.itemCount || 1;
+      const orderTitle = result.orderTitle || 'Produto do catálogo';
+      const orderId = result.orderId || 'N/A';
+
+      return (
+        `🛒 *NOVO PEDIDO NO CATÁLOGO*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📦 *Produto:* ${orderTitle}\n` +
+        `📊 *Quantidade:* ${itemCount}\n` +
+        `💰 *Total:* ${price}\n` +
+        `🆔 *Pedido:* #${orderId}\n` +
+        `━━━━━━━━━━━━━━━━━━━━━\n` +
+        `_Responda para atender este pedido!_`
+      );
     }
 
     if (typeKey === 'locationMessage' || typeKey === 'liveLocationMessage') {
