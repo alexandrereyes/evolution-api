@@ -553,6 +553,10 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
+  private getUpsertEmittedCacheKey(messageId: string) {
+    return `upsert_emitted_${this.instanceId}_${messageId}`;
+  }
+
   private async defineAuthState() {
     const db = this.configService.get<Database>('DATABASE');
     const cache = this.configService.get<CacheConf>('CACHE');
@@ -1477,12 +1481,10 @@ export class BaileysStartupService extends ChannelStartupService {
           if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
-          console.log(messageRaw);
-
           await this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
 
           if (messageRaw.messageType === 'audioMessage' && !messageRaw.key.fromMe && messageRaw.key.id) {
-            await this.baileysCache.set(`upsert_emitted_${this.instanceId}_${messageRaw.key.id}`, true, 60 * 10);
+            await this.baileysCache.set(this.getUpsertEmittedCacheKey(messageRaw.key.id), true, 60 * 10);
           }
 
           await chatbotController.emit({
@@ -1654,7 +1656,7 @@ export class BaileysStartupService extends ChannelStartupService {
             }
 
             if (!key.fromMe && findMessage.messageType === 'audioMessage' && key.id) {
-              const upsertCacheKey = `upsert_emitted_${this.instanceId}_${key.id}`;
+              const upsertCacheKey = this.getUpsertEmittedCacheKey(key.id);
               const alreadyEmitted = await this.baileysCache.get(upsertCacheKey);
 
               if (!alreadyEmitted) {
