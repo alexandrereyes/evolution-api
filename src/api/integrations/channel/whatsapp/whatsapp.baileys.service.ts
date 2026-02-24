@@ -104,6 +104,7 @@ import makeWASocket, {
   DisconnectReason,
   downloadContentFromMessage,
   downloadMediaMessage,
+  generateMessageIDV2,
   generateWAMessageFromContent,
   getAggregateVotesInPollMessage,
   GetCatalogOptions,
@@ -2225,6 +2226,11 @@ export class BaileysStartupService extends ChannelStartupService {
       return error;
     }
   }
+  public generateMessageID() {
+    return {
+      id: generateMessageIDV2(this.client.user?.id),
+    };
+  }
 
   private async generateLinkPreview(text: string) {
     try {
@@ -2534,7 +2540,7 @@ export class BaileysStartupService extends ChannelStartupService {
           mentions,
           linkPreview,
           quoted,
-          null,
+          options?.messageId ?? null,
           group?.ephemeralDuration,
           previewContext,
           // group?.participants,
@@ -2558,7 +2564,7 @@ export class BaileysStartupService extends ChannelStartupService {
           mentions,
           linkPreview,
           quoted,
-          null,
+          options?.messageId ?? null,
           undefined,
           contextInfo,
         );
@@ -2790,6 +2796,7 @@ export class BaileysStartupService extends ChannelStartupService {
         linkPreview: data?.linkPreview,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
+        messageId: data?.messageId,
       },
       isIntegration,
     );
@@ -2806,6 +2813,7 @@ export class BaileysStartupService extends ChannelStartupService {
         linkPreview: data?.linkPreview,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
+        messageId: data?.messageId,
       },
     );
   }
@@ -3119,6 +3127,7 @@ export class BaileysStartupService extends ChannelStartupService {
         quoted: data?.quoted,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
+        messageId: data?.messageId,
       },
     );
 
@@ -3141,6 +3150,7 @@ export class BaileysStartupService extends ChannelStartupService {
         quoted: data?.quoted,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
+        messageId: data?.messageId,
       },
       isIntegration,
     );
@@ -3157,6 +3167,7 @@ export class BaileysStartupService extends ChannelStartupService {
       quoted: data?.quoted,
       mentionsEveryOne: data?.mentionsEveryOne,
       mentioned: data?.mentioned,
+      messageId: data?.messageId,
     };
 
     if (file) mediaData.media = file.buffer.toString('base64');
@@ -3172,6 +3183,7 @@ export class BaileysStartupService extends ChannelStartupService {
         quoted: data?.quoted,
         mentionsEveryOne: data?.mentionsEveryOne,
         mentioned: data?.mentioned,
+        messageId: data?.messageId,
       },
       isIntegration,
     );
