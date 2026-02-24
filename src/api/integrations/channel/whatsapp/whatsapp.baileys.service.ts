@@ -253,6 +253,12 @@ export class BaileysStartupService extends ChannelStartupService {
   private logBaileys = this.configService.get<Log>('LOG').BAILEYS;
   private eventProcessingQueue: Promise<void> = Promise.resolve();
 
+  // Cumulative history sync counters (reset on new sync or completion)
+  private historySyncMessageCount = 0;
+  private historySyncChatCount = 0;
+  private historySyncContactCount = 0;
+  private historySyncLastProgress = -1;
+
   // Cache TTL constants (in seconds)
   private readonly MESSAGE_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes - avoid duplicate message processing
   private readonly UPDATE_CACHE_TTL_SECONDS = 30 * 60; // 30 minutes - avoid duplicate status updates
@@ -1013,6 +1019,14 @@ export class BaileysStartupService extends ChannelStartupService {
       syncType?: proto.HistorySync.HistorySyncType;
     }) => {
       try {
+        // Reset counters when a new sync starts (progress resets or decreases)
+        if (progress <= this.historySyncLastProgress) {
+          this.historySyncMessageCount = 0;
+          this.historySyncChatCount = 0;
+          this.historySyncContactCount = 0;
+        }
+        this.historySyncLastProgress = progress ?? -1;
+
         if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
           console.log('received on-demand history sync, messages=', messages);
         }
@@ -1098,8 +1112,6 @@ export class BaileysStartupService extends ChannelStartupService {
           chatsRaw.push({ remoteJid, remoteLid, instanceId: this.instanceId, name: chat.name });
         }
 
-        this.sendDataWebhook(Events.CHATS_SET, chatsRaw);
-
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
           const chatsToCreateMany = JSON.parse(JSON.stringify(chatsRaw)).map((chat) => {
             delete chat.remoteLid;
@@ -1108,6 +1120,10 @@ export class BaileysStartupService extends ChannelStartupService {
 
           await this.prismaRepository.chat.createMany({ data: chatsToCreateMany, skipDuplicates: true });
         }
+
+        this.historySyncChatCount += chatsRaw.length;
+
+        this.sendDataWebhook(Events.CHATS_SET, chatsRaw);
 
         const messagesRaw: any[] = [];
 
@@ -1160,14 +1176,16 @@ export class BaileysStartupService extends ChannelStartupService {
           messagesRaw.push(this.prepareMessage(m));
         }
 
-        this.sendDataWebhook(Events.MESSAGES_SET, [...messagesRaw], true, undefined, {
-          isLatest,
-          progress,
-        });
+        this.historySyncMessageCount += messagesRaw.length;
 
         if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
           await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
         }
+
+        this.sendDataWebhook(Events.MESSAGES_SET, [...messagesRaw], true, undefined, {
+          isLatest,
+          progress,
+        });
 
         if (
           this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
@@ -1181,9 +1199,25 @@ export class BaileysStartupService extends ChannelStartupService {
           );
         }
 
+        const filteredContacts = contacts.filter((c) => !!c.notify || !!c.name);
+        this.historySyncContactCount += filteredContacts.length;
+
         await this.contactHandle['contacts.upsert'](
-          contacts.filter((c) => !!c.notify || !!c.name).map((c) => ({ id: c.id, name: c.name ?? c.notify })),
+          filteredContacts.map((c) => ({ id: c.id, name: c.name ?? c.notify })),
         );
+
+        if (progress === 100) {
+          this.sendDataWebhook(Events.MESSAGING_HISTORY_SET, {
+            messageCount: this.historySyncMessageCount,
+            chatCount: this.historySyncChatCount,
+            contactCount: this.historySyncContactCount,
+          });
+
+          this.historySyncMessageCount = 0;
+          this.historySyncChatCount = 0;
+          this.historySyncContactCount = 0;
+          this.historySyncLastProgress = -1;
+        }
 
         contacts = undefined;
         messages = undefined;
