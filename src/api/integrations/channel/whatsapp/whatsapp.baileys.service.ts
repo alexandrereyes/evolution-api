@@ -1092,10 +1092,6 @@ export class BaileysStartupService extends ChannelStartupService {
         const filteredContacts = contacts.filter((c) => !!c.notify || !!c.name);
         this.historySyncContactCount += filteredContacts.length;
 
-        await this.contactHandle['contacts.upsert'](
-          filteredContacts.map((c) => ({ id: c.id, name: c.name ?? c.notify })),
-        );
-
         if (progress === 100) {
           this.sendDataWebhook(Events.MESSAGING_HISTORY_SET, {
             messageCount: this.historySyncMessageCount,
@@ -1108,6 +1104,10 @@ export class BaileysStartupService extends ChannelStartupService {
           this.historySyncContactCount = 0;
           this.historySyncLastProgress = -1;
         }
+
+        await this.contactHandle['contacts.upsert'](
+          filteredContacts.map((c) => ({ id: c.id, name: c.name ?? c.notify })),
+        );
 
         contacts = undefined;
         messages = undefined;
