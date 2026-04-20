@@ -559,10 +559,6 @@ export class BaileysStartupService extends ChannelStartupService {
     }
   }
 
-  private getUpsertEmittedCacheKey(messageId: string) {
-    return `upsert_emitted_${this.instanceId}_${messageId}`;
-  }
-
   private async defineAuthState() {
     const db = this.configService.get<Database>('DATABASE');
     const cache = this.configService.get<CacheConf>('CACHE');
@@ -950,13 +946,15 @@ export class BaileysStartupService extends ChannelStartupService {
       syncType?: proto.HistorySync.HistorySyncType;
     }) => {
       try {
-        // Reset counters when a new sync starts (progress resets or decreases)
-        if (progress <= this.historySyncLastProgress) {
+        const normalizedProgress = progress ?? -1;
+
+        if (normalizedProgress <= this.historySyncLastProgress) {
           this.historySyncMessageCount = 0;
           this.historySyncChatCount = 0;
           this.historySyncContactCount = 0;
         }
-        this.historySyncLastProgress = progress ?? -1;
+
+        this.historySyncLastProgress = normalizedProgress;
 
         if (syncType === proto.HistorySync.HistorySyncType.ON_DEMAND) {
           console.log('received on-demand history sync, messages=', messages);
@@ -1007,13 +1005,13 @@ export class BaileysStartupService extends ChannelStartupService {
           chatsRaw.push({ remoteJid: chat.id, instanceId: this.instanceId, name: chat.name });
         }
 
-        if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
-          await this.prismaRepository.chat.createMany({ data: chatsRaw, skipDuplicates: true });
-        }
-
         this.historySyncChatCount += chatsRaw.length;
 
         this.sendDataWebhook(Events.CHATS_SET, chatsRaw);
+
+        if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
+          await this.prismaRepository.chat.createMany({ data: chatsRaw, skipDuplicates: true });
+        }
 
         const messagesRaw: any[] = [];
 
@@ -1068,14 +1066,14 @@ export class BaileysStartupService extends ChannelStartupService {
 
         this.historySyncMessageCount += messagesRaw.length;
 
-        if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
-          await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
-        }
-
         this.sendDataWebhook(Events.MESSAGES_SET, [...messagesRaw], true, undefined, {
           isLatest,
           progress,
         });
+
+        if (this.configService.get<Database>('DATABASE').SAVE_DATA.HISTORIC) {
+          await this.prismaRepository.message.createMany({ data: messagesRaw, skipDuplicates: true });
+        }
 
         if (
           this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
@@ -1092,7 +1090,7 @@ export class BaileysStartupService extends ChannelStartupService {
         const filteredContacts = contacts.filter((c) => !!c.notify || !!c.name);
         this.historySyncContactCount += filteredContacts.length;
 
-        if (progress === 100) {
+        if (normalizedProgress === 100) {
           this.sendDataWebhook(Events.MESSAGING_HISTORY_SET, {
             messageCount: this.historySyncMessageCount,
             chatCount: this.historySyncChatCount,
@@ -1427,6 +1425,8 @@ export class BaileysStartupService extends ChannelStartupService {
                 try {
                   if (isVideo && !this.configService.get<S3>('S3').SAVE_VIDEO) {
                     this.logger.warn('Video upload is disabled. Skipping video upload.');
+                    // Skip video upload by returning early from this block
+                    return;
                   } else {
                     const message: any = received;
 
@@ -1440,35 +1440,34 @@ export class BaileysStartupService extends ChannelStartupService {
 
                       if (!media) {
                         this.logger.verbose('No valid media to upload (messageContextInfo only), skipping MinIO');
-                      } else {
-                        const { buffer, mediaType, fileName, size } = media;
-                        const mimetype = mimeTypes.lookup(fileName).toString();
-                        const fullName = join(
-                          `${this.instance.id}`,
-                          received.key.remoteJid,
-                          mediaType,
-                          `${Date.now()}_${fileName}`,
-                        );
-                        await s3Service.uploadFile(fullName, buffer, size.fileLength?.low, {
-                          'Content-Type': mimetype,
-                        });
-
-                        await this.prismaRepository.media.create({
-                          data: {
-                            messageId: msg.id,
-                            instanceId: this.instanceId,
-                            type: mediaType,
-                            fileName: fullName,
-                            mimetype,
-                          },
-                        });
-
-                        const mediaUrl = await s3Service.getObjectUrl(fullName);
-
-                        messageRaw.message.mediaUrl = mediaUrl;
-
-                        await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
+                        return;
                       }
+
+                      const { buffer, mediaType, fileName, size } = media;
+                      const mimetype = mimeTypes.lookup(fileName).toString();
+                      const fullName = join(
+                        `${this.instance.id}`,
+                        received.key.remoteJid,
+                        mediaType,
+                        `${Date.now()}_${fileName}`,
+                      );
+                      await s3Service.uploadFile(fullName, buffer, size.fileLength?.low, { 'Content-Type': mimetype });
+
+                      await this.prismaRepository.media.create({
+                        data: {
+                          messageId: msg.id,
+                          instanceId: this.instanceId,
+                          type: mediaType,
+                          fileName: fullName,
+                          mimetype,
+                        },
+                      });
+
+                      const mediaUrl = await s3Service.getObjectUrl(fullName);
+
+                      messageRaw.message.mediaUrl = mediaUrl;
+
+                      await this.prismaRepository.message.update({ where: { id: msg.id }, data: messageRaw });
                     }
                   }
                 } catch (error) {
@@ -1515,11 +1514,9 @@ export class BaileysStartupService extends ChannelStartupService {
           if (messageRaw.key.remoteJid?.includes('@lid') && messageRaw.key.remoteJidAlt) {
             messageRaw.key.remoteJid = messageRaw.key.remoteJidAlt;
           }
-          await this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
+          console.log(messageRaw);
 
-          if (messageRaw.messageType === 'audioMessage' && !messageRaw.key.fromMe && messageRaw.key.id) {
-            await this.baileysCache.set(this.getUpsertEmittedCacheKey(messageRaw.key.id), true, 60 * 10);
-          }
+          this.sendDataWebhook(Events.MESSAGES_UPSERT, messageRaw);
 
           await chatbotController.emit({
             instance: { instanceName: this.instance.name, instanceId: this.instanceId },
@@ -1687,36 +1684,6 @@ export class BaileysStartupService extends ChannelStartupService {
             if (!findMessage?.id) {
               this.logger.warn(`Original message not found for update. Skipping. Key: ${JSON.stringify(key)}`);
               continue;
-            }
-
-            if (!key.fromMe && findMessage.messageType === 'audioMessage' && key.id) {
-              const upsertCacheKey = this.getUpsertEmittedCacheKey(key.id);
-              const alreadyEmitted = await this.baileysCache.get(upsertCacheKey);
-
-              if (!alreadyEmitted) {
-                const fallbackUpsertPayload = {
-                  key: findMessage.key,
-                  pushName: findMessage.pushName,
-                  status: findMessage.status,
-                  message: findMessage.message,
-                  contextInfo: findMessage.contextInfo,
-                  messageType: findMessage.messageType,
-                  messageTimestamp: findMessage.messageTimestamp,
-                  instanceId: findMessage.instanceId,
-                  source: findMessage.source,
-                };
-
-                try {
-                  await this.sendDataWebhook(Events.MESSAGES_UPSERT, fallbackUpsertPayload);
-                  await this.baileysCache.set(upsertCacheKey, true, 60 * 10);
-                  this.logger.warn(`Fallback messages.upsert emitted for audio message ${key.id}`);
-                } catch (error) {
-                  this.logger.error([
-                    `Failed to emit fallback messages.upsert for audio message ${key.id}`,
-                    error?.message,
-                  ]);
-                }
-              }
             }
 
             message.messageId = findMessage.id;
